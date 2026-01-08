@@ -1,6 +1,6 @@
 [package]
 name = "yt-clipper-rust"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -17,3 +17,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 url = "2"
 which = "6"
 regex = "1"
+
+# New dependencies for enhanced features
+strum = { version = "0.26", features = ["derive"] }  # Enum string conversion
+dirs = "5"                                            # Home/cache directories
