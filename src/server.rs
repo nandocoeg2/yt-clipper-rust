@@ -26,6 +26,8 @@ pub struct ProcessRequest {
     language: Option<String>,
     #[serde(default)]
     output_dir: Option<String>,
+    #[serde(default)]
+    gpu: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -41,6 +43,7 @@ struct ProcessOptionsResponse {
     subtitle_enabled: bool,
     whisper_model: Option<String>,
     language: Option<String>,
+    gpu: bool,
 }
 
 #[derive(Serialize)]
@@ -72,9 +75,13 @@ async fn process_handler(Json(payload): Json<ProcessRequest>) -> impl IntoRespon
     // Output directory
     let output_dir = payload.output_dir.clone().unwrap_or_else(|| "clips".to_string());
 
+    // GPU acceleration
+    let use_gpu = payload.gpu.unwrap_or(false);
+
     // Build options
     let subtitle_config = SubtitleConfig::new(subtitle_enabled, whisper_model, &language);
-    let options = ProcessOptions::new(crop_mode, subtitle_config, &output_dir);
+    let options = ProcessOptions::new(crop_mode, subtitle_config, &output_dir)
+        .with_gpu(use_gpu);
 
     // Process video
     match full_process(&payload.url, &options).await {
@@ -95,6 +102,7 @@ async fn process_handler(Json(payload): Json<ProcessRequest>) -> impl IntoRespon
                     } else {
                         None
                     },
+                    gpu: use_gpu,
                 },
             };
             (StatusCode::OK, Json(response)).into_response()
@@ -116,7 +124,8 @@ async fn health_handler() -> impl IntoResponse {
         "features": {
             "crop_modes": ["default", "split-left", "split-right"],
             "subtitle": check_python_available(),
-            "whisper_models": ["tiny", "base", "small", "medium", "large"]
+            "whisper_models": ["tiny", "base", "small", "medium", "large"],
+            "gpu": true
         }
     }))
 }
@@ -141,7 +150,7 @@ pub async fn start_server(port: u16) {
     println!("\nExample request:");
     println!(r#"  curl -X POST http://localhost:{}/api/process \"#, port);
     println!(r#"    -H "Content-Type: application/json" \"#);
-    println!(r#"    -d '{{"url": "https://youtube.com/watch?v=VIDEO_ID", "crop_mode": "default", "subtitle": false}}'"#);
+    println!(r#"    -d '{{"url": "https://youtube.com/watch?v=VIDEO_ID", "crop_mode": "default", "subtitle": false, "gpu": true}}'"#);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

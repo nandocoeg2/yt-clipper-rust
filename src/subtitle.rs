@@ -870,7 +870,7 @@ pub fn generate_subtitle(
 }
 
 /// Burn subtitle onto video using FFmpeg
-pub fn burn_subtitle(video_file: &str, sub_file: &str, output_file: &str) -> Result<()> {
+pub fn burn_subtitle(video_file: &str, sub_file: &str, output_file: &str, use_gpu: bool) -> Result<()> {
     let abs_sub_path = std::path::Path::new(sub_file)
         .canonicalize()
         .unwrap_or_else(|_| std::path::PathBuf::from(sub_file));
@@ -899,12 +899,20 @@ pub fn burn_subtitle(video_file: &str, sub_file: &str, output_file: &str) -> Res
 
     println!("  Burning subtitle to video...");
 
-    let status = Command::new("ffmpeg")
-        .args(["-y", "-hide_banner", "-loglevel", "error"])
+    // Choose encoder based on GPU flag
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-y", "-hide_banner", "-loglevel", "error"])
         .args(["-i", video_file])
-        .args(["-vf", &subtitle_filter])
-        .args(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"])
-        .args(["-c:a", "copy"])
+        .args(["-vf", &subtitle_filter]);
+
+    if use_gpu {
+        println!("  Using GPU encoder (NVENC)...");
+        cmd.args(["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "26"]);
+    } else {
+        cmd.args(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"]);
+    }
+
+    let status = cmd.args(["-c:a", "copy"])
         .arg(output_file)
         .status()?;
 
@@ -921,6 +929,7 @@ pub fn process_subtitle(
     output_file: &str,
     config: &SubtitleConfig,
     index: usize,
+    use_gpu: bool,
 ) -> Result<String> {
     if !config.enabled {
         fs::rename(cropped_file, output_file)?;
@@ -935,7 +944,7 @@ pub fn process_subtitle(
     let sub_file = format!("temp_{}.{}", index, sub_ext);
 
     match generate_subtitle(cropped_file, &sub_file, config) {
-        Ok(_) => match burn_subtitle(cropped_file, &sub_file, output_file) {
+        Ok(_) => match burn_subtitle(cropped_file, &sub_file, output_file, use_gpu) {
             Ok(_) => {
                 let _ = fs::remove_file(cropped_file);
                 let _ = fs::remove_file(&sub_file);

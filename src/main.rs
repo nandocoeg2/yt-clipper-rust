@@ -51,6 +51,10 @@ struct Args {
     /// Run in interactive mode (prompts for all options)
     #[arg(short, long)]
     interactive: bool,
+
+    /// Use GPU acceleration (NVIDIA NVENC) for video encoding
+    #[arg(short, long)]
+    gpu: bool,
 }
 
 fn prompt_crop_mode() -> CropMode {
@@ -187,7 +191,8 @@ async fn main() -> anyhow::Result<()> {
         &language,
     );
 
-    let options = ProcessOptions::new(crop_mode, subtitle_config, &args.output);
+    let options = ProcessOptions::new(crop_mode, subtitle_config, &args.output)
+        .with_gpu(args.gpu);
 
     println!("\n=== Processing ===");
     println!("URL: {}", url);
@@ -197,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         "disabled".to_string()
     });
+    println!("GPU acceleration: {}", if args.gpu { "enabled (NVENC)" } else { "disabled" });
     println!("Output: {}", args.output);
     println!();
 

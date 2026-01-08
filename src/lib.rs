@@ -30,6 +30,7 @@ pub struct ProcessOptions {
     pub crop_mode: CropMode,
     pub subtitle: SubtitleConfig,
     pub output_dir: String,
+    pub use_gpu: bool,
 }
 
 impl Default for ProcessOptions {
@@ -38,6 +39,7 @@ impl Default for ProcessOptions {
             crop_mode: CropMode::Default,
             subtitle: SubtitleConfig::default(),
             output_dir: "clips".to_string(),
+            use_gpu: false,
         }
     }
 }
@@ -48,7 +50,13 @@ impl ProcessOptions {
             crop_mode,
             subtitle,
             output_dir: output_dir.to_string(),
+            use_gpu: false,
         }
+    }
+
+    pub fn with_gpu(mut self, use_gpu: bool) -> Self {
+        self.use_gpu = use_gpu;
+        self
     }
 }
 
@@ -245,25 +253,39 @@ pub fn process_clip(
     // 2. Convert/Crop based on crop mode
     println!("  Cropping video ({})...", options.crop_mode.description());
 
+    // Choose encoder based on GPU flag
+    let (video_codec, video_args): (&str, Vec<&str>) = if options.use_gpu {
+        println!("  Using GPU encoder (NVENC)...");
+        ("h264_nvenc", vec!["-preset", "p4", "-rc", "vbr", "-cq", "26"])
+    } else {
+        ("libx264", vec!["-preset", "ultrafast", "-crf", "26"])
+    };
+
     let crop_status = if options.crop_mode.is_complex_filter() {
         // Use -filter_complex for split modes
-        Command::new("ffmpeg")
-            .args(["-y", "-hide_banner", "-loglevel", "error"])
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args(["-y", "-hide_banner", "-loglevel", "error"])
             .args(["-i", &temp_file])
             .args(["-filter_complex", &options.crop_mode.get_ffmpeg_filter()])
             .args(["-map", "[out]", "-map", "0:a?"])
-            .args(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"])
-            .args(["-c:a", "aac", "-b:a", "128k"])
+            .args(["-c:v", video_codec]);
+        for arg in &video_args {
+            cmd.arg(arg);
+        }
+        cmd.args(["-c:a", "aac", "-b:a", "128k"])
             .arg(&cropped_file)
             .status()?
     } else {
         // Use -vf for default mode
-        Command::new("ffmpeg")
-            .args(["-y", "-hide_banner", "-loglevel", "error"])
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args(["-y", "-hide_banner", "-loglevel", "error"])
             .args(["-i", &temp_file])
             .args(["-vf", &options.crop_mode.get_ffmpeg_filter()])
-            .args(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"])
-            .args(["-c:a", "aac", "-b:a", "128k"])
+            .args(["-c:v", video_codec]);
+        for arg in &video_args {
+            cmd.arg(arg);
+        }
+        cmd.args(["-c:a", "aac", "-b:a", "128k"])
             .arg(&cropped_file)
             .status()?
     };
@@ -278,7 +300,7 @@ pub fn process_clip(
     }
 
     // 3. Process subtitle (if enabled) and finalize
-    match subtitle::process_subtitle(&cropped_file, &output_file, &options.subtitle, index) {
+    match subtitle::process_subtitle(&cropped_file, &output_file, &options.subtitle, index, options.use_gpu) {
         Ok(_) => {
             println!("Clip successfully generated: {}", output_file);
             Ok(true)
